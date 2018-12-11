@@ -11,11 +11,6 @@ namespace Orleans.Hosting
         public static ISiloHostBuilder AddSignalR(this ISiloHostBuilder builder, Action<SimpleMessageStreamProviderOptions> configureOptions)
         {
             builder.AddSimpleMessageStreamProvider(Constants.STREAM_PROVIDER, configureOptions)
-                //.Configure<GrainCollectionOptions>(options =>
-                //{
-                //    options.ClassSpecificCollectionAge[typeof(GroupGrain).FullName] = TimeSpan.FromMilliseconds(1000);
-                //    options.ClassSpecificCollectionAge[typeof(UserGrain).FullName] = TimeSpan.FromMilliseconds(1000);
-                //})
                 .ConfigureApplicationParts(manager =>
                 {
                     manager.AddApplicationPart(typeof(ClientGrain).Assembly).WithReferences();
@@ -35,7 +30,6 @@ namespace Orleans.Hosting
                 // PubSub store was already added.
             }
             builder.AddMemoryGrainStorage(Constants.STORAGE_PROVIDER);
-            //builder.UseTransactions();
             return builder;
         }
     }

@@ -19,7 +19,6 @@ namespace Orleans
 
             builder.ConfigureServices(services =>
             {
-                //services.TryAddSingleton(typeof(IClientSetPartitioner<,>), typeof(DefaultClientSetPartitioner<,>));
                 services.TryAddSingleton(typeof(IClientSetPartitioner<>), typeof(DefaultClientSetPartitioner<>));
             });
 

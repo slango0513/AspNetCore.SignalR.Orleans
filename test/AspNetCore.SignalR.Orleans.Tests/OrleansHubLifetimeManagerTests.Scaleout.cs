@@ -3,7 +3,6 @@
 
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR.Tests;
-using Orleans;
 using System.Threading.Tasks;
 using Xunit;
 

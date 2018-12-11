@@ -19,7 +19,6 @@ namespace Microsoft.Extensions.DependencyInjection
             signalrBuilder.Services.Configure(configure);
             signalrBuilder.Services.AddSingleton(typeof(HubLifetimeManager<THub>), typeof(OrleansHubLifetimeManager<THub>));
             signalrBuilder.Services.TryAddSingleton(typeof(IClientSetPartitioner<>), typeof(DefaultClientSetPartitioner<>));
-            //signalrBuilder.Services.TryAddSingleton(typeof(IClientSetPartitioner<,>), typeof(DefaultClientSetPartitioner<,>));
             return signalrBuilder;
         }
     }

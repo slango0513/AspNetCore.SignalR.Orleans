@@ -81,7 +81,6 @@ namespace AspNetCore.SignalR.Orleans.Tests
             using (var client3 = new TestClient(userIdentifier: "userB"))
             {
                 var userPartitioner = new DefaultClientSetPartitioner<IUserPartitionGrain>();
-                //var userPartitionIds = userPartitioner.GetPartitionGrains(typeof(MyHub).GUID);
 
                 var connection1 = HubConnectionContextUtils.Create(client1.Connection);
                 var connection2 = HubConnectionContextUtils.Create(client2.Connection);
