@@ -47,7 +47,7 @@ namespace AspNetCore.SignalR.Orleans
         private ConcurrentDictionary<string, HubConnectionContext> connectionsById = new ConcurrentDictionary<string, HubConnectionContext>();
         private IDisposable heartbeatDisposable = default;
 
-        private async Task ConnectToClusterAsync()
+        public async Task ConnectToClusterAsync()
         {
             await EnsureOrleansClusterConnection();
 
@@ -70,6 +70,7 @@ namespace AspNetCore.SignalR.Orleans
                     {
                         await _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).OnHeartbeatAsync();
                     });
+                isInitialized = true;
             }
             catch (Exception e)
             {
@@ -143,7 +144,6 @@ namespace AspNetCore.SignalR.Orleans
             if (!isInitialized)
             {
                 await ConnectToClusterAsync();
-                isInitialized = true;
             }
 
             var connectionId = connection.ConnectionId;

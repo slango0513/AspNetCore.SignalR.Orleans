@@ -1,7 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using Orleans;
-using Orleans.Placement;
-using Orleans.Providers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,9 +20,8 @@ namespace AspNetCore.SignalR.Orleans.Internal
         public bool Aborted { get; set; } = false;
     }
 
-    [StorageProvider(ProviderName = Constants.STORAGE_PROVIDER)]
-    [PreferLocalPlacement]
-    internal class HubLifetimeManagerGrain : Grain<HubLifetimeManagerGrainState>, IHubLifetimeManagerGrain
+    //[StorageProvider(ProviderName = Constants.STORAGE_PROVIDER)]
+    internal class HubLifetimeManagerGrain : Grain, IHubLifetimeManagerGrain
     {
         private readonly ILogger _logger;
 
@@ -32,6 +29,9 @@ namespace AspNetCore.SignalR.Orleans.Internal
         {
             _logger = logger;
         }
+
+        // TODO
+        public HubLifetimeManagerGrainState State { get; set; } = new HubLifetimeManagerGrainState();
 
         private Guid _hubLifetimeManagerId;
         private Guid _hubTypeId;
@@ -63,7 +63,6 @@ namespace AspNetCore.SignalR.Orleans.Internal
 
                 State.ReceivedMessageThisInterval = false;
                 State.LastReceivedTimeStamp = DateTime.UtcNow;
-                await WriteStateAsync();
             }
         }
 
@@ -81,7 +80,6 @@ namespace AspNetCore.SignalR.Orleans.Internal
             }
 
             State.Aborted = true;
-            await WriteStateAsync();
             DeactivateOnIdle();
         }
 
@@ -93,21 +91,21 @@ namespace AspNetCore.SignalR.Orleans.Internal
 
         public async Task OnConnectedAsync(string connectionId)
         {
+            await ResetTimeoutAsync();
             await GrainFactory.GetClientGrain(connectionId, _hubTypeId).OnConnectedAsync(_hubLifetimeManagerId);
 
             if (State.ConnectionIds.Add(connectionId))
             {
-                await WriteStateAsync();
             }
         }
 
         public async Task OnDisconnectedAsync(string connectionId)
         {
+            await ResetTimeoutAsync();
             await GrainFactory.GetClientGrain(connectionId, _hubTypeId).OnDisconnectedAsync();
 
             if (State.ConnectionIds.Remove(connectionId))
             {
-                await WriteStateAsync();
             }
         }
 
@@ -119,7 +117,7 @@ namespace AspNetCore.SignalR.Orleans.Internal
         private Task ResetTimeoutAsync()
         {
             State.ReceivedMessageThisInterval = true;
-            return WriteStateAsync();
+            return Task.CompletedTask;
         }
 
         private static class Log

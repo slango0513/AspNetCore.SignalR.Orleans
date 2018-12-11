@@ -2,7 +2,7 @@
 using Orleans.Hosting;
 using Orleans.TestingHost;
 
-namespace AspNetCore.SignalR.Orleans.Samples
+namespace Playground
 {
     public class SampleSiloBuilderConfigurator : ISiloBuilderConfigurator
     {

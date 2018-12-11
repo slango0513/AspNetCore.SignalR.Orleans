@@ -7,7 +7,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 
-namespace AspNetCore.SignalR.Orleans.Samples
+namespace Playground
 {
     partial class Program
     {
