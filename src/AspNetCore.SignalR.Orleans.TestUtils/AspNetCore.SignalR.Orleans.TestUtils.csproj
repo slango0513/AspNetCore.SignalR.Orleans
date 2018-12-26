@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
+    <PackageLicenseUrl>https://github.com/slango0513/AspNetCore.SignalR.Orleans#license</PackageLicenseUrl>
+    <PackageProjectUrl>https://github.com/slango0513/AspNetCore.SignalR.Orleans</PackageProjectUrl>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

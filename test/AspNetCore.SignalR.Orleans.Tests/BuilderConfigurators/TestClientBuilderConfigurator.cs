@@ -9,9 +9,7 @@ namespace AspNetCore.SignalR.Orleans.Tests
     {
         public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
         {
-            clientBuilder.AddSignalR(options =>
-            {
-            });
+            clientBuilder.UseSignalR();
         }
     }
 }

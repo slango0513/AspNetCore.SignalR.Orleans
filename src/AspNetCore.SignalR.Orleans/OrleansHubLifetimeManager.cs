@@ -4,12 +4,13 @@ using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans;
+using Orleans.Messaging.SignalR;
+using Orleans.Messaging.SignalR.Internal;
 using Orleans.Streams;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,57 +21,35 @@ namespace AspNetCore.SignalR.Orleans
         private readonly Guid _id = Guid.NewGuid();
         private readonly Guid _hubTypeId = typeof(THub).GUID;
 
-        private readonly OrleansOptions<THub> _options;
         private readonly IClusterClient _clusterClient;
-        private readonly IClientSetPartitioner<IGroupPartitionGrain> _groupPartitioner;
-        private readonly IClientSetPartitioner<IUserPartitionGrain> _userPartitioner;
-        private readonly IUserIdProvider _userIdProvider;
         private readonly ILogger _logger;
 
-        public OrleansHubLifetimeManager(IOptions<OrleansOptions<THub>> options,
-            IClientSetPartitioner<IGroupPartitionGrain> groupPartitioner,
-            IClientSetPartitioner<IUserPartitionGrain> userPartitioner,
-            IUserIdProvider userIdProvider,
-            ILogger<OrleansHubLifetimeManager<THub>> logger)
+        public OrleansHubLifetimeManager(IOptions<OrleansOptions<THub>> options, IHubProxy<THub> hubProxy, ILogger<OrleansHubLifetimeManager<THub>> logger)
         {
-            _options = options.Value;
             _clusterClient = options.Value.ClusterClient;
-            _groupPartitioner = groupPartitioner;
-            _userPartitioner = userPartitioner;
-            _userIdProvider = userIdProvider;
+            HubProxy = hubProxy;
             _logger = logger;
         }
 
-        private bool isInitialized = false;
-        private IAsyncStream<ClientInvocationMessage> _clientMessageStream = default;
-        private IAsyncStream<AllInvocationMessage> _allMessageStream = default;
-        private ConcurrentDictionary<string, HubConnectionContext> connectionsById = new ConcurrentDictionary<string, HubConnectionContext>();
-        private IDisposable heartbeatDisposable = default;
+        public IHubProxy HubProxy { get; }
 
-        public async Task ConnectToClusterAsync()
+        private bool _initialized;
+        private IAsyncStream<SendClientInvocationMessage> _clientMessageStream;
+        private StreamSubscriptionHandle<SendClientInvocationMessage> _clientMessageHandle;
+        private StreamSubscriptionHandle<SendAllInvocationMessage> _allMessageHandle;
+        private ConcurrentDictionary<string, HubConnectionContext> connectionsById = new ConcurrentDictionary<string, HubConnectionContext>();
+
+        private async Task InitializeAsync()
         {
             await EnsureOrleansClusterConnection();
 
             OrleansLog.Subscribing(_logger, _id);
 
-            var provider = _clusterClient.GetStreamProvider(Constants.STREAM_PROVIDER);
-
-            _clientMessageStream = provider.GetStream<ClientInvocationMessage>(_id, Constants.CLIENT_MESSAGE_STREAM_NAMESPACE);
-            await _clientMessageStream.SubscribeAsync(async (message, token) => await OnReceivedClientMessageAsync(message));
-
-            _allMessageStream = provider.GetStream<AllInvocationMessage>(_hubTypeId, Constants.HUB_MESSAGE_STREAM_NAMESPACE);
-            await _allMessageStream.SubscribeAsync(async (message, token) => await OnReceivedAllMessageAsync(message));
-
             try
             {
-                await _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).OnInitializeAsync(_options.TimeoutInterval ?? TimeSpan.FromSeconds(30));
-                // Tick heartbeat
-                heartbeatDisposable = Observable.Interval(TimeSpan.FromSeconds(1))
-                    .Subscribe(async value =>
-                    {
-                        await _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).OnHeartbeatAsync();
-                    });
-                isInitialized = true;
+                _clientMessageStream = _clusterClient.GetStreamProvider(SignalRConstants.STREAM_PROVIDER).GetStream<SendClientInvocationMessage>(_id, InternalSignalRConstants.SEND_CLIENT_MESSAGE_STREAM_NAMESPACE);
+                _clientMessageHandle = await _clientMessageStream.SubscribeAsync(async (message, token) => await OnReceivedAsync(message));
+                _allMessageHandle = await HubProxy.AllMessageStream.SubscribeAsync(async (message, token) => await OnReceivedAsync(message));
             }
             catch (Exception e)
             {
@@ -82,6 +61,11 @@ namespace AspNetCore.SignalR.Orleans
 
         private async Task EnsureOrleansClusterConnection()
         {
+            if (_clusterClient == null)
+            {
+                throw new NullReferenceException(nameof(_clusterClient));
+            }
+
             if (_clusterClient.IsInitialized)
             {
                 OrleansLog.Connected(_logger);
@@ -89,14 +73,14 @@ namespace AspNetCore.SignalR.Orleans
             }
 
             OrleansLog.NotConnected(_logger);
-            await _clusterClient.Connect(async e =>
+            await _clusterClient.Connect(async ex =>
             {
-                if (_retries >= 8)
+                if (_retries >= 5)
                 {
-                    throw e;
+                    throw ex;
                 }
 
-                OrleansLog.ConnectionFailed(_logger, e);
+                OrleansLog.ConnectionFailed(_logger, ex);
                 await Task.Delay(2000);
                 _retries++;
                 return true;
@@ -104,12 +88,13 @@ namespace AspNetCore.SignalR.Orleans
             OrleansLog.ConnectionRestored(_logger);
         }
 
-        private async Task OnReceivedClientMessageAsync(ClientInvocationMessage message)
+        private async Task OnReceivedAsync(SendClientInvocationMessage message)
         {
             OrleansLog.ReceivedFromStream(_logger, _id);
             if (connectionsById.TryGetValue(message.ConnectionId, out var connection))
             {
                 var invocationMessage = new InvocationMessage(message.MethodName, message.Args);
+
                 try
                 {
                     await connection.WriteAsync(invocationMessage).AsTask();
@@ -121,12 +106,13 @@ namespace AspNetCore.SignalR.Orleans
             }
         }
 
-        private async Task OnReceivedAllMessageAsync(AllInvocationMessage message)
+        private async Task OnReceivedAsync(SendAllInvocationMessage message)
         {
             OrleansLog.ReceivedFromStream(_logger, _id);
             var invocationMessage = new InvocationMessage(message.MethodName, message.Args);
 
-            var tasks = connectionsById.Where(pair => !pair.Value.ConnectionAborted.IsCancellationRequested && !message.ExcludedConnectionIds.Contains(pair.Key))
+            var tasks = connectionsById
+                .Where(pair => !pair.Value.ConnectionAborted.IsCancellationRequested && !message.ExcludedConnectionIds.Contains(pair.Key))
                 .Select(pair => pair.Value.WriteAsync(invocationMessage).AsTask());
 
             try
@@ -141,115 +127,94 @@ namespace AspNetCore.SignalR.Orleans
 
         public override async Task OnConnectedAsync(HubConnectionContext connection)
         {
-            if (!isInitialized)
+            if (!_initialized)
             {
-                await ConnectToClusterAsync();
+                _initialized = true;
+                await InitializeAsync();
             }
 
             var connectionId = connection.ConnectionId;
-            await _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).OnConnectedAsync(connectionId);
-
-            var userId = _userIdProvider.GetUserId(connection);
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await _userPartitioner.GetPartitionGrain(_clusterClient, userId, _hubTypeId).AddToUserAsync(connectionId, userId);
-            }
+            await HubProxy.OnConnectedAsync(_id, connectionId, connection.UserIdentifier);
             connectionsById.TryAdd(connectionId, connection);
         }
 
         public override async Task OnDisconnectedAsync(HubConnectionContext connection)
         {
             var connectionId = connection.ConnectionId;
-            await _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).OnDisconnectedAsync(connectionId);
-
-            var userId = _userIdProvider.GetUserId(connection);
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await _userPartitioner.GetPartitionGrain(_clusterClient, userId, _hubTypeId).RemoveFromUserAsync(connectionId, userId);
-            }
-
+            await HubProxy.OnDisconnectedAsync(connectionId, connection.UserIdentifier);
             connectionsById.TryRemove(connectionId, out _);
         }
 
         public override Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
         {
-            return _groupPartitioner.GetPartitionGrain(_clusterClient, groupName, _hubTypeId).AddToGroupAsync(connectionId, groupName);
+            return HubProxy.AddToGroupAsync(connectionId, groupName);
         }
 
         public override Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
         {
-            return _groupPartitioner.GetPartitionGrain(_clusterClient, groupName, _hubTypeId).RemoveFromGroupAsync(connectionId, groupName);
+            return HubProxy.RemoveFromGroupAsync(connectionId, groupName);
         }
 
         public override Task SendAllAsync(string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            return SendAllExceptAsync(methodName, args, Enumerable.Empty<string>().ToList(), cancellationToken);
+            return HubProxy.SendAllAsync(methodName, args);
         }
 
         public override Task SendAllExceptAsync(string methodName, object[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default)
         {
-            return _allMessageStream.OnNextAsync(new AllInvocationMessage(methodName, args, excludedConnectionIds));
+            return HubProxy.SendAllExceptAsync(methodName, args, excludedConnectionIds);
         }
 
         public override Task SendConnectionAsync(string connectionId, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            return _clusterClient.GetClient(connectionId, _hubTypeId).SendConnectionAsync(methodName, args);
+            return HubProxy.SendClientAsync(connectionId, methodName, args);
         }
 
         public override Task SendConnectionsAsync(IReadOnlyList<string> connectionIds, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            var tasks = connectionIds.Select(id => SendConnectionAsync(id, methodName, args, cancellationToken));
-            return Task.WhenAll(tasks);
+            return HubProxy.SendClientsAsync(connectionIds, methodName, args);
         }
 
         public override Task SendGroupAsync(string groupName, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            return _clusterClient.GetGroup(groupName, _hubTypeId).SendClientSetAsync(methodName, args);
+            return HubProxy.SendGroupAsync(groupName, methodName, args);
         }
 
         public override Task SendGroupExceptAsync(string groupName, string methodName, object[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default)
         {
-            return _clusterClient.GetGroup(groupName, _hubTypeId).SendClientSetExceptAsync(methodName, args, excludedConnectionIds);
+            return HubProxy.SendGroupExceptAsync(groupName, methodName, args, excludedConnectionIds);
         }
 
         public override Task SendGroupsAsync(IReadOnlyList<string> groupNames, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            var tasks = groupNames.Select(name => SendGroupAsync(name, methodName, args, cancellationToken));
-            return Task.WhenAll(tasks);
+            return HubProxy.SendGroupsAsync(groupNames, methodName, args);
         }
 
         public override Task SendUserAsync(string userId, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            return _clusterClient.GetUser(userId, _hubTypeId).SendClientSetAsync(methodName, args);
+            return HubProxy.SendUserAsync(userId, methodName, args);
         }
 
         public override Task SendUsersAsync(IReadOnlyList<string> userIds, string methodName, object[] args, CancellationToken cancellationToken = default)
         {
-            var tasks = userIds.Select(id => SendUserAsync(id, methodName, args, cancellationToken));
-            return Task.WhenAll(tasks);
+            return HubProxy.SendUsersAsync(userIds, methodName, args);
         }
 
         public void Dispose()
         {
-            if (!isInitialized)
+            if (!_initialized)
             {
                 return;
             }
 
-            heartbeatDisposable.Dispose();
-
             OrleansLog.Unsubscribe(_logger, _id);
 
-            var clientHandles = _clientMessageStream.GetAllSubscriptionHandles().Result;
-            var clientTasks = clientHandles.Select(handle => handle.UnsubscribeAsync()).ToArray();
-            Task.WaitAll(clientTasks);
+            var tasks = connectionsById.Keys.Select(id => _clusterClient.GetStreamProvider(SignalRConstants.STREAM_PROVIDER)
+                .GetStream<EventArgs>(InternalSignalRConstants.DISCONNECTION_STREAM_ID, id)
+                .OnNextAsync(EventArgs.Empty));
+            Task.WaitAll(tasks.ToArray());
 
-            //var allHandles = _allMessageStream.GetAllSubscriptionHandles().Result;
-            //var allTasks = clientHandles.Select(handle => handle.UnsubscribeAsync()).ToArray();
-            //Task.WaitAll(allTasks);
-
-            var task = _clusterClient.GetHubLifetimeManagerGrain(_id, _hubTypeId).AbortAsync();
-            Task.WaitAll(task);
+            Task.WaitAll(_allMessageHandle.UnsubscribeAsync());
         }
     }
 }

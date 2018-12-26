@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Orleans;
+using Orleans.Messaging.SignalR;
 using Orleans.TestingHost;
 using System;
 using System.Collections.Concurrent;
@@ -43,13 +44,10 @@ namespace Playground
         {
             stoppingToken.Register(async () =>
             {
-                foreach (var item in clientReader.Values)
-                {
-                    item.Dispose();
-                }
                 foreach (var item in testClients.Values)
                 {
-                    item.Abort();
+                    item.Connection.Abort();
+                    item.Reader.Dispose();
                 }
                 foreach (var item in managers.Values)
                 {
@@ -59,8 +57,6 @@ namespace Playground
 
                 _logger.LogInformation(2, "stopped.");
             });
-
-
 
             Observable.FromAsync(() => Console.In.ReadLineAsync())
                 .Repeat()
@@ -86,41 +82,38 @@ namespace Playground
             return Task.CompletedTask;
         }
 
-        private readonly ConcurrentDictionary<string, OrleansHubLifetimeManager<SampleHub>> managers
-            = new ConcurrentDictionary<string, OrleansHubLifetimeManager<SampleHub>>();
-        private IClientSetPartitioner<IGroupPartitionGrain> _groupPartitioner;
-        private IClientSetPartitioner<IUserPartitionGrain> _userPartitioner;
+        private readonly ConcurrentDictionary<string, OrleansHubLifetimeManager<SampleHub>> managers = new ConcurrentDictionary<string, OrleansHubLifetimeManager<SampleHub>>();
 
-        private readonly ConcurrentDictionary<string, HubConnectionContext> testClients
-            = new ConcurrentDictionary<string, HubConnectionContext>();
-        private readonly ConcurrentDictionary<string, IDisposable> clientReader
-            = new ConcurrentDictionary<string, IDisposable>();
+        public class ReadableClient
+        {
+            public HubConnectionContext Connection { get; set; }
+
+            public IDisposable Reader { get; set; }
+        }
+
+        private readonly ConcurrentDictionary<string, ReadableClient> testClients = new ConcurrentDictionary<string, ReadableClient>();
 
         private async Task CreateManagerAsync(string managerId)
         {
             var options = new OrleansOptions<SampleHub>
             {
-                ClusterClient = _testCluster.Client,
-                TimeoutInterval = TimeSpan.FromSeconds(15)
+                ClusterClient = _testCluster.Client
             };
-            _groupPartitioner = new DefaultClientSetPartitioner<IGroupPartitionGrain>();
-            _userPartitioner = new DefaultClientSetPartitioner<IUserPartitionGrain>();
+
             var manager = new OrleansHubLifetimeManager<SampleHub>(Options.Create(options),
-                _groupPartitioner,
-                _userPartitioner,
-                new DefaultUserIdProvider(),
+                new HubProxy<SampleHub>(options.ClusterClient),
                 _loggerFactory.CreateLogger<OrleansHubLifetimeManager<SampleHub>>());
-            await manager.ConnectToClusterAsync();
+
             managers[managerId] = manager;
+
+            await Task.CompletedTask;
         }
 
         private async Task CreateClientAsync(string managerId, string connectionId, string userId)
         {
+            var client = new TestClient(connectionId: connectionId);
 
-            var client = new TestClient(userIdentifier: userId);
-
-            var connection = HubConnectionContextUtils.Create(client.Connection);
-            testClients[connectionId] = connection;
+            var connection = HubConnectionContextUtils.Create(client.Connection, userIdentifier: userId);
 
             await managers[managerId].OnConnectedAsync(connection);
 
@@ -131,7 +124,8 @@ namespace Playground
             {
                 _logger.LogInformation($"Method: {message.Target}, Args: {JsonConvert.SerializeObject(message.Arguments)}");
             });
-            clientReader[connectionId] = reader;
+
+            testClients[connectionId] = new ReadableClient { Connection = connection, Reader = reader };
         }
 
         private async Task OnNextAsync(string[] value)
@@ -154,22 +148,33 @@ namespace Playground
                     break;
                 case "ms":
                     {
-                        var managerId = value[1];
-                        Parallel.For(0, 10, async i =>
+                        Parallel.For(0, 3, async i =>
                         {
-                            await CreateManagerAsync($"{managerId}{i}");
+                            await CreateManagerAsync($"{i}");
                         });
                     }
                     break;
-                case "cu":
+                case "cs":
                     {
-                        var connectionId = value[1];
-                        var userId = value[2];
+                        var userId = value[1];
 
                         Parallel.ForEach(managers.Keys, async managerId =>
                         {
-                            var clientTasks = Enumerable.Range(0, 20).Select(i => $"{connectionId}{i}").Select(id => CreateClientAsync(managerId, id, userId));
+                            var clientTasks = Enumerable.Range(0, 3).Select(i => $"{Guid.NewGuid()}").Select(id => CreateClientAsync(managerId, id, userId));
                             await Task.WhenAll(clientTasks);
+                        });
+                    }
+                    break;
+                case "atgs":
+                    {
+                        var groupName = value[1];
+
+                        Parallel.ForEach(managers, manager =>
+                        {
+                            Parallel.ForEach(testClients, client =>
+                            {
+                                manager.Value.AddToGroupAsync(client.Value.Connection.ConnectionId, groupName);
+                            });
                         });
                     }
                     break;
@@ -185,7 +190,31 @@ namespace Playground
                         var managerId = value[1];
                         var connectionId = value[2];
 
-                        await managers[managerId].OnDisconnectedAsync(testClients[connectionId]);
+                        await managers[managerId].OnDisconnectedAsync(testClients[connectionId].Connection);
+                    }
+                    break;
+                case "dac":
+                    {
+                        var managerId = value[1];
+                        var connectionId = value[21];
+
+                        await managers[managerId].HubProxy.DeactiveClientAsync(connectionId);
+                    }
+                    break;
+                case "dag":
+                    {
+                        var managerId = value[1];
+                        var groupName = value[2];
+
+                        await managers[managerId].HubProxy.DeactiveGroupAsync(groupName);
+                    }
+                    break;
+                case "dau":
+                    {
+                        var managerId = value[1];
+                        var userId = value[2];
+
+                        await managers[managerId].HubProxy.DeactiveUserAsync(userId);
                     }
                     break;
                 case "sa":
@@ -193,6 +222,7 @@ namespace Playground
                         var managerId = value[1];
 
                         await managers[managerId].SendAllAsync("Hello", new object[] { "All" });
+                        _logger.LogInformation("Done");
                     }
                     break;
                 case "sg":
@@ -201,6 +231,7 @@ namespace Playground
                         var groupName = value[2];
 
                         await managers[managerId].SendGroupAsync(groupName, "Hello", new object[] { "Group member" });
+                        _logger.LogInformation("Done");
                     }
                     break;
                 case "su":
@@ -209,6 +240,7 @@ namespace Playground
                         var userId = value[2];
 
                         await managers[managerId].SendUserAsync(userId, "Hello", new object[] { "User client" });
+                        _logger.LogInformation("Done");
                     }
                     break;
                 case "atg":
@@ -217,7 +249,7 @@ namespace Playground
                         var connectionId = value[2];
                         var groupName = value[3];
 
-                        await managers[managerId].AddToGroupAsync(testClients[connectionId].ConnectionId, groupName);
+                        await managers[managerId].AddToGroupAsync(testClients[connectionId].Connection.ConnectionId, groupName);
                     }
                     break;
                 case "rfg":
@@ -226,48 +258,9 @@ namespace Playground
                         var connectionId = value[2];
                         var groupName = value[3];
 
-                        await managers[managerId].RemoveFromGroupAsync(testClients[connectionId].ConnectionId, groupName);
+                        await managers[managerId].RemoveFromGroupAsync(testClients[connectionId].Connection.ConnectionId, groupName);
                     }
                     break;
-                case "ga":
-                    {
-                        var managerId = value[1];
-
-                        var groups = await _groupPartitioner.GetAllClientSetIdsAsync(_testCluster.Client, typeof(SampleHub).GUID);
-                        var groupClients = await Task.WhenAll(groups.Select(name => _testCluster.Client.GetGroup(name, typeof(SampleHub).GUID).GetConnectionIdsAsync()));
-                        _logger.LogInformation($"GroupNames: {JsonConvert.SerializeObject(groups)}, Clients: {JsonConvert.SerializeObject(groupClients)}");
-
-                        var users = await _userPartitioner.GetAllClientSetIdsAsync(_testCluster.Client, typeof(SampleHub).GUID);
-                        var userClients = await Task.WhenAll(users.Select(id => _testCluster.Client.GetGroup(id, typeof(SampleHub).GUID).GetConnectionIdsAsync()));
-                        _logger.LogInformation($"UserIds: {JsonConvert.SerializeObject(users)}, Clients: {JsonConvert.SerializeObject(userClients)}");
-                    }
-                    break;
-
-
-                //case "sr":
-                //    {
-                //        var range = RangeFactory.CreateRange(uint.Parse(value[1]), uint.Parse(value[2]));
-                //        var subRanges = RangeFactory.GetSubRanges(range);
-                //        _logger.LogInformation($"subRanges: {JsonConvert.SerializeObject(subRanges)}");
-
-
-
-                //        //var id = Utils.CalculateIdHash(value[1]);
-                //        //_logger.LogInformation($"id: {id}");
-                //    }
-                //    break;
-                //case "ifr":
-                //    {
-                //        var fullRange = RangeFactory.CreateFullRange();
-                //        _logger.LogInformation($"{value[1]} in full range: {fullRange.InRange(uint.Parse(value[1]))}");
-                //    }
-                //    break;
-                //case "ir":
-                //    {
-                //        var range = RangeFactory.CreateRange(uint.Parse(value[1]), uint.Parse(value[2]));
-                //        _logger.LogInformation($"{value[3]} in range: {range.InRange(uint.Parse(value[3]))}");
-                //    }
-                //    break;
                 default:
                     break;
             }

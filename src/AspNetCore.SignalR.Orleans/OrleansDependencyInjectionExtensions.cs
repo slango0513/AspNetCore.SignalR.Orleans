@@ -1,7 +1,8 @@
 ﻿using AspNetCore.SignalR.Orleans;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Orleans;
+using Orleans.Messaging.SignalR;
 using System;
 
 namespace Microsoft.Extensions.DependencyInjection
@@ -18,7 +19,7 @@ namespace Microsoft.Extensions.DependencyInjection
         {
             signalrBuilder.Services.Configure(configure);
             signalrBuilder.Services.AddSingleton(typeof(HubLifetimeManager<THub>), typeof(OrleansHubLifetimeManager<THub>));
-            signalrBuilder.Services.TryAddSingleton(typeof(IClientSetPartitioner<>), typeof(DefaultClientSetPartitioner<>));
+            signalrBuilder.Services.AddSingleton(typeof(IHubProxy<THub>), provider => new HubProxy<THub>(provider.GetRequiredService<IOptions<OrleansOptions<THub>>>().Value.ClusterClient));
             return signalrBuilder;
         }
     }

@@ -8,9 +8,7 @@ namespace Playground
     {
         public void Configure(ISiloHostBuilder hostBuilder)
         {
-            hostBuilder.AddSignalR(options =>
-            {
-            })
+            hostBuilder.UseSignalR()
             .ConfigureLogging(builder =>
             {
                 builder.SetMinimumLevel(LogLevel.Warning);

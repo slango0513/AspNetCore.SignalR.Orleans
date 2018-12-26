@@ -7,9 +7,7 @@ namespace AspNetCore.SignalR.Orleans.Tests
     {
         public void Configure(ISiloHostBuilder hostBuilder)
         {
-            hostBuilder.AddSignalR(options =>
-            {
-            });
+            hostBuilder.UseSignalR();
         }
     }
 }

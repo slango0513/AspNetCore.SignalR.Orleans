@@ -17,7 +17,6 @@ namespace Playground
         {
             TestCluster = BuildTestCluster();
             await TestCluster.DeployAsync();
-            //await BuildWebHost().RunAsync();
             await BuildHost(args).RunAsync();
         }
 

@@ -9,7 +9,7 @@ namespace AspNetCore.SignalR.Orleans.Tests
 
         public TestClusterFixture()
         {
-            var builder = new TestClusterBuilder(3);
+            var builder = new TestClusterBuilder(2);
             builder.Options.ServiceId = Guid.NewGuid().ToString();
             builder.AddSiloBuilderConfigurator<TestSiloBuilderConfigurator>();
             builder.AddClientBuilderConfigurator<TestClientBuilderConfigurator>();

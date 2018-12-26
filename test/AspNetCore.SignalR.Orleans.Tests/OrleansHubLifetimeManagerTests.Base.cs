@@ -3,7 +3,7 @@
 
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR.Tests;
-using Orleans;
+using Orleans.Messaging.SignalR;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -57,9 +57,12 @@ namespace AspNetCore.SignalR.Orleans.Tests
             }
         }
 
-        [Fact]
-        public async Task SendGroupAsyncWritesToAllConnectionsInGroupOutput()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SendGroupAsyncWritesToAllConnectionsInGroupOutput(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client1 = new TestClient())
             using (var client2 = new TestClient())
@@ -70,18 +73,30 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
 
-                await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+                if (fromManager)
+                {
+                    await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
 
-                await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                    await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+
+                    await hubProxy.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client1);
                 Assert.Null(client2.TryRead());
             }
         }
 
-        [Fact]
-        public async Task SendGroupExceptAsyncDoesNotWriteToExcludedConnections()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SendGroupExceptAsyncDoesNotWriteToExcludedConnections(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client1 = new TestClient())
             using (var client2 = new TestClient())
@@ -92,10 +107,20 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
 
-                await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
-                await manager.AddToGroupAsync(connection2.ConnectionId, "group").OrTimeout();
+                if (fromManager)
+                {
+                    await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+                    await manager.AddToGroupAsync(connection2.ConnectionId, "group").OrTimeout();
 
-                await manager.SendGroupExceptAsync("group", "Hello", new object[] { "World" }, new[] { connection2.ConnectionId }).OrTimeout();
+                    await manager.SendGroupExceptAsync("group", "Hello", new object[] { "World" }, new[] { connection2.ConnectionId }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+                    await hubProxy.AddToGroupAsync(connection2.ConnectionId, "group").OrTimeout();
+
+                    await hubProxy.SendGroupExceptAsync("group", "Hello", new object[] { "World" }, new[] { connection2.ConnectionId }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client1);
                 Assert.Null(client2.TryRead());
@@ -103,9 +128,12 @@ namespace AspNetCore.SignalR.Orleans.Tests
         }
 
         // ADDED: SendGroupsAsync
-        [Fact]
-        public async Task SendGroupAsyncWritesToAllConnectionsInGroupsOutput()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SendGroupAsyncWritesToAllConnectionsInGroupsOutput(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client1 = new TestClient())
             using (var client2 = new TestClient())
@@ -116,19 +144,32 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
 
-                await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
-                await manager.AddToGroupAsync(connection2.ConnectionId, "group2").OrTimeout();
+                if (fromManager)
+                {
+                    await manager.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+                    await manager.AddToGroupAsync(connection2.ConnectionId, "group2").OrTimeout();
 
-                await manager.SendGroupsAsync(new string[] { "group", "group2" }, "Hello", new object[] { "World" }).OrTimeout();
+                    await manager.SendGroupsAsync(new string[] { "group", "group2" }, "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.AddToGroupAsync(connection1.ConnectionId, "group").OrTimeout();
+                    await hubProxy.AddToGroupAsync(connection2.ConnectionId, "group2").OrTimeout();
+
+                    await hubProxy.SendGroupsAsync(new string[] { "group", "group2" }, "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client1);
                 await AssertMessageAsync(client2);
             }
         }
 
-        [Fact]
-        public async Task SendConnectionAsyncWritesToConnectionOutput()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SendConnectionAsyncWritesToConnectionOutput(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client = new TestClient())
             {
@@ -136,16 +177,26 @@ namespace AspNetCore.SignalR.Orleans.Tests
 
                 await manager.OnConnectedAsync(connection).OrTimeout();
 
-                await manager.SendConnectionAsync(connection.ConnectionId, "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendConnectionAsync(connection.ConnectionId, "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendClientAsync(connection.ConnectionId, "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client);
             }
         }
 
         // ADDED: SendConnectionsAsync
-        [Fact]
-        public async Task SendConnectionAsyncWritesToConnectionsOutput()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SendConnectionAsyncWritesToConnectionsOutput(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client1 = new TestClient())
             using (var client2 = new TestClient())
@@ -156,16 +207,26 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
 
-                await manager.SendConnectionsAsync(new string[] { connection1.ConnectionId, connection2.ConnectionId }, "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendConnectionsAsync(new string[] { connection1.ConnectionId, connection2.ConnectionId }, "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendClientsAsync(new string[] { connection1.ConnectionId, connection2.ConnectionId }, "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client1);
                 await AssertMessageAsync(client2);
             }
         }
 
-        [Fact]
-        public async Task DisconnectConnectionRemovesConnectionFromGroup()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task DisconnectConnectionRemovesConnectionFromGroup(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client = new TestClient())
             {
@@ -173,23 +234,40 @@ namespace AspNetCore.SignalR.Orleans.Tests
 
                 await manager.OnConnectedAsync(connection).OrTimeout();
 
-                await manager.AddToGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                if (fromManager)
+                {
+                    await manager.AddToGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.AddToGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                }
 
                 await manager.OnDisconnectedAsync(connection).OrTimeout();
 
-                await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 Assert.Null(client.TryRead());
 
                 // ADDED: GetConnectionIdsAsync
-                var result = await _fixture.TestCluster.Client.GetGroup("group", typeof(MyHub).GUID).GetConnectionIdsAsync().OrTimeout();
-                Assert.Equal(0, result.Count);
+                //var result = await hubProxy.GetGroupNamesAsync("group").OrTimeout();
+                //Assert.Equal(0, result.Count);
             }
         }
 
-        [Fact]
-        public async Task RemoveGroupFromLocalConnectionNotInGroupDoesNothing()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task RemoveGroupFromLocalConnectionNotInGroupDoesNothing(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client = new TestClient())
             {
@@ -197,13 +275,23 @@ namespace AspNetCore.SignalR.Orleans.Tests
 
                 await manager.OnConnectedAsync(connection).OrTimeout();
 
-                await manager.RemoveFromGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                if (fromManager)
+                {
+                    await manager.RemoveFromGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.RemoveFromGroupAsync(connection.ConnectionId, "group").OrTimeout();
+                }
             }
         }
 
-        [Fact]
-        public async Task AddGroupAsyncForLocalConnectionAlreadyInGroupDoesNothing()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task AddGroupAsyncForLocalConnectionAlreadyInGroupDoesNothing(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client = new TestClient())
             {
@@ -214,20 +302,30 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.AddToGroupAsync(connection.ConnectionId, "group").OrTimeout();
                 await manager.AddToGroupAsync(connection.ConnectionId, "group").OrTimeout();
 
-                await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
 
                 await AssertMessageAsync(client);
                 Assert.Null(client.TryRead());
 
                 // ADDED: GetConnectionIdsAsync
-                var result = await _fixture.TestCluster.Client.GetGroup("group", typeof(MyHub).GUID).GetConnectionIdsAsync().OrTimeout();
-                Assert.Equal(1, result.Count);
+                //var result = await hubProxy.GetConnectionIdsFromGroupAsync("group").OrTimeout();
+                //Assert.Equal(1, result.Count);
             }
         }
 
-        [Fact]
-        public async Task WritingToGroupWithOneConnectionFailingSecondConnectionStillReceivesMessage()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task WritingToGroupWithOneConnectionFailingSecondConnectionStillReceivesMessage(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
             using (var client1 = new TestClient())
             using (var client2 = new TestClient())
@@ -243,7 +341,14 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager.OnConnectedAsync(connection2).OrTimeout();
                 await manager.AddToGroupAsync(connection2.ConnectionId, "group");
 
-                await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
                 // connection1 will throw when receiving a group message, we are making sure other connections
                 // are not affected by another connection throwing
                 await AssertMessageAsync(client2);
@@ -254,51 +359,124 @@ namespace AspNetCore.SignalR.Orleans.Tests
             }
         }
 
-        [Fact]
-        public async Task InvokeUserSendsToAllConnectionsForUser()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task InvokeUserSendsToAllConnectionsForUser(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
-            using (var client1 = new TestClient(userIdentifier: "userA"))
-            using (var client2 = new TestClient(userIdentifier: "userA"))
-            using (var client3 = new TestClient(userIdentifier: "userB"))
+            using (var client1 = new TestClient())
+            using (var client2 = new TestClient())
+            using (var client3 = new TestClient())
             {
-                var connection1 = HubConnectionContextUtils.Create(client1.Connection);
-                var connection2 = HubConnectionContextUtils.Create(client2.Connection);
-                var connection3 = HubConnectionContextUtils.Create(client3.Connection);
+                var connection1 = HubConnectionContextUtils.Create(client1.Connection, userIdentifier: "userA");
+                var connection2 = HubConnectionContextUtils.Create(client2.Connection, userIdentifier: "userA");
+                var connection3 = HubConnectionContextUtils.Create(client3.Connection, userIdentifier: "userB");
 
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
                 await manager.OnConnectedAsync(connection3).OrTimeout();
 
-                await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
                 await AssertMessageAsync(client1);
                 await AssertMessageAsync(client2);
             }
         }
 
-        [Fact]
-        public async Task StillSubscribedToUserAfterOneOfMultipleConnectionsAssociatedWithUserDisconnects()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task StillSubscribedToUserAfterOneOfMultipleConnectionsAssociatedWithUserDisconnects(bool fromManager)
         {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
             using (var manager = CreateNewHubLifetimeManager<MyHub>())
-            using (var client1 = new TestClient(userIdentifier: "userA"))
-            using (var client2 = new TestClient(userIdentifier: "userA"))
-            using (var client3 = new TestClient(userIdentifier: "userB"))
+            using (var client1 = new TestClient())
+            using (var client2 = new TestClient())
+            using (var client3 = new TestClient())
             {
-                var connection1 = HubConnectionContextUtils.Create(client1.Connection);
-                var connection2 = HubConnectionContextUtils.Create(client2.Connection);
-                var connection3 = HubConnectionContextUtils.Create(client3.Connection);
+                var connection1 = HubConnectionContextUtils.Create(client1.Connection, userIdentifier: "userA");
+                var connection2 = HubConnectionContextUtils.Create(client2.Connection, userIdentifier: "userA");
+                var connection3 = HubConnectionContextUtils.Create(client3.Connection, userIdentifier: "userB");
 
                 await manager.OnConnectedAsync(connection1).OrTimeout();
                 await manager.OnConnectedAsync(connection2).OrTimeout();
                 await manager.OnConnectedAsync(connection3).OrTimeout();
 
-                await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
+
                 await AssertMessageAsync(client1);
                 await AssertMessageAsync(client2);
 
                 // Disconnect one connection for the user
                 await manager.OnDisconnectedAsync(connection1).OrTimeout();
-                await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+
+                _output.WriteLine("Sending.");
+                if (fromManager)
+                {
+                    await manager.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendUserAsync("userA", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                _output.WriteLine("Sent.");
+                await AssertMessageAsync(client2);
+            }
+        }
+
+        // ADDED
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task StillSubscribedToGroupAfterOneOfMultipleConnectionsAssociatedWithGroupDisconnects(bool fromManager)
+        {
+            var hubProxy = new HubProxy<MyHub>(_fixture.TestCluster.Client);
+            using (var manager = CreateNewHubLifetimeManager<MyHub>())
+            using (var client1 = new TestClient())
+            using (var client2 = new TestClient())
+            {
+                var connection1 = HubConnectionContextUtils.Create(client1.Connection);
+                var connection2 = HubConnectionContextUtils.Create(client2.Connection);
+
+                await manager.OnConnectedAsync(connection1).OrTimeout();
+                await manager.OnConnectedAsync(connection2).OrTimeout();
+
+                if (fromManager)
+                {
+                    await manager.AddToGroupAsync(connection2.ConnectionId, "group");
+                    await manager.AddToGroupAsync(connection1.ConnectionId, "group");
+                }
+                else
+                {
+                    await hubProxy.AddToGroupAsync(connection1.ConnectionId, "group");
+                    await hubProxy.AddToGroupAsync(connection2.ConnectionId, "group");
+                }
+
+                // Disconnect one connection for the group
+                await manager.OnDisconnectedAsync(connection1).OrTimeout();
+                if (fromManager)
+                {
+                    await manager.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
+                else
+                {
+                    await hubProxy.SendGroupAsync("group", "Hello", new object[] { "World" }).OrTimeout();
+                }
                 await AssertMessageAsync(client2);
             }
         }

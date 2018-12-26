@@ -10,7 +10,7 @@ namespace Playground
     {
         public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
         {
-            clientBuilder.AddSignalR(options => { })
+            clientBuilder.UseSignalR()
                 .ConfigureLogging(builder =>
                 {
                     builder.SetMinimumLevel(LogLevel.Warning);

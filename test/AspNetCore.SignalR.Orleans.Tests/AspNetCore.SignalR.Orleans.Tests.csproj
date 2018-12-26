@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
-    <PackageReference Include="Microsoft.Orleans.TestingHost" Version="2.1.2" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" Version="2.2.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1">
       <PrivateAssets>all</PrivateAssets>
@@ -21,7 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AspNetCore.SignalR.Orleans.TestUtils\AspNetCore.SignalR.Orleans.TestUtils.csproj" />
     <ProjectReference Include="..\..\src\AspNetCore.SignalR.Orleans\AspNetCore.SignalR.Orleans.csproj" />
-    <ProjectReference Include="..\..\src\Orleans.AspNetCore.SignalR\Orleans.AspNetCore.SignalR.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Messaging.SignalR\Orleans.Messaging.SignalR.csproj" />
   </ItemGroup>
 
 </Project>

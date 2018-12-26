@@ -85,7 +85,6 @@ namespace AspNetCore.SignalR.Orleans.Tests
                 await manager2.SendAllAsync("Hello", new object[] { "World" }).OrTimeout();
 
                 await AssertMessageAsync(client1);
-
                 Assert.Null(client2.TryRead());
             }
         }
